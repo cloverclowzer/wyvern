@@ -307,9 +307,8 @@ app.get('/api/users', (req, res) => {
   const db = loadDb();
   const user = requireAuth(req, res, db);
   if (!user) return;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
 
-  res.json({ users: db.users.map((entry) => ({ ...entry, password: undefined })) });
+  res.json({ users: db.users.map((entry) => sanitizeUser(entry)) });
 });
 
 app.post('/api/users/:username/ban', (req, res) => {
