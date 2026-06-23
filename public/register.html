@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SigmaChat - Register</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body data-page="register">
+    <div class="auth-wrapper">
+      <div class="auth-card">
+        <h1>Create account</h1>
+        <p>Join SigmaChat today</p>
+
+        <form id="registerForm" class="auth-form">
+          <label>
+            <span>Username</span>
+            <input id="registerUsername" name="username" required />
+          </label>
+
+          <label>
+            <span>Password</span>
+            <input id="registerPassword" name="password" type="password" required />
+          </label>
+
+          <button type="submit">Register</button>
+        </form>
+
+        <div class="auth-link">
+          <span>Already have an account?</span>
+          <a href="/login.html">Login</a>
+        </div>
+      </div>
+    </div>
+
+    <script src="/client.js"></script>
+  </body>
+</html>

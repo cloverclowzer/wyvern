@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SigmaChat</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body data-page="chat">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>SigmaChat</h1>
+          <p>Discord-inspired hub</p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Channels</div>
+          <div id="channelList" class="channel-list"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Users</div>
+          <div id="userList" class="user-list"></div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="chat-header">
+          <div>
+            <h2 id="channelTitle">#general</h2>
+            <p id="channelSubtitle">Welcome to the channel</p>
+          </div>
+          <div class="header-actions">
+            <div id="currentUserName" class="current-user-pill"></div>
+            <button id="logoutBtn" class="secondary-btn">Logout</button>
+            <button id="mobileAdminToggle" class="secondary-btn">Admin</button>
+          </div>
+        </header>
+
+        <div class="chat-area">
+          <div id="messages" class="messages"></div>
+          <div id="typingIndicator" class="typing-indicator"></div>
+          <form id="messageForm" class="message-form">
+            <input id="messageInput" autocomplete="off" placeholder="Type a message..." />
+            <button type="submit">Send</button>
+          </form>
+        </div>
+      </main>
+
+      <aside id="adminPanel" class="admin-panel">
+        <h3>Admin Panel</h3>
+        <div id="adminUserDetails" class="admin-card"></div>
+        <div id="adminActions" class="admin-actions"></div>
+      </aside>
+    </div>
+
+    <div id="toastArea" class="toast-area"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/client.js"></script>
+  </body>
+</html>

@@ -1,12 +1,15 @@
 {
-  "name": "wyvern-chatroom",
+  "name": "wyvern",
   "version": "1.0.0",
-  "description": "A stylish chatroom with auth, moderation, roles, badges, and Discord-style channels",
+  "description": "Discord-inspired chat app with Node.js, Express, Socket.IO, session auth, and database.json storage",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "express-session": "^1.9.0",
+    "socket.io": "^4.1.0"
   }
 }

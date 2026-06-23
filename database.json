@@ -1,35 +1,9 @@
 {
-  "users": [
-    {
-      "username": "Admin",
-      "password": "whatthesigma",
-      "role": "admin",
-      "verified": true,
-      "badges": ["blue", "gold"],
-      "banned": false,
-      "createdAt": "2026-06-23T00:00:00.000Z"
-    }
-  ],
-  "channels": [
-    {
-      "id": "general",
-      "name": "general",
-      "description": "Main room for everyone",
-      "createdBy": "Admin"
-    }
-  ],
-  "messages": [
-    {
-      "id": "seed-message-1",
-      "channelId": "general",
-      "username": "Admin",
-      "content": "Welcome to Wyvern Chat. The Admin can manage users, messages, and badges.",
-      "timestamp": "2026-06-23T00:00:00.000Z",
-      "deleted": false
-    }
-  ],
-  "settings": {
-    "defaultChannel": "general"
-  },
-  "sessions": []
+  "users": [],
+  "channels": [],
+  "messages": [],
+  "meta": {
+    "createdAt": "2026-06-23T00:00:00.000Z",
+    "updatedAt": "2026-06-23T00:00:00.000Z"
+  }
 }

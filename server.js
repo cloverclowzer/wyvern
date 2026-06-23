@@ -1,358 +1,648 @@
 const express = require('express');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
+const http = require('http');
+const { Server } = require('socket.io');
+const { randomUUID } = require('crypto');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
+
+const DB_PATH = path.join(__dirname, 'database.json');
+const DEFAULT_CHANNELS = ['general'];
+const SESSION_SECRET = process.env.SESSION_SECRET || 'sigma-chat-secret';
+const ADMIN_USERNAME = 'Admin';
+const ADMIN_PASSWORD = 'whatthesigma';
+
+let db = loadDatabase();
+initializeDatabase();
+
+const onlineUsers = new Map();
+
+const sessionMiddleware = session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24
+  }
+});
+
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.urlencoded({ extended: true }));
+app.use(sessionMiddleware);
+app.use(express.static(path.join(__dirname, 'public')));
 
-const dbPath = path.join(__dirname, 'database.json');
-
-function getDefaultDb() {
-  return {
-    users: [],
-    channels: [],
-    messages: [],
-    settings: { defaultChannel: 'general' },
-    sessions: []
+io.use((socket, next) => {
+  const req = socket.request;
+  const res = req.res || {
+    setHeader: () => {},
+    getHeader: () => {},
+    removeHeader: () => {},
+    end: () => {}
   };
-}
+  sessionMiddleware(req, res, next);
+});
 
-function loadDb() {
-  if (!fs.existsSync(dbPath)) {
-    const seed = getDefaultDb();
-    seed.users = [
-      {
-        username: 'Admin',
-        password: 'whatthesigma',
-        role: 'admin',
-        verified: true,
-        badges: ['blue', 'gold'],
-        banned: false,
-        createdAt: new Date().toISOString()
+function loadDatabase() {
+  if (!fs.existsSync(DB_PATH)) {
+    const initial = {
+      users: [],
+      channels: [],
+      messages: [],
+      meta: {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       }
-    ];
-    seed.channels = [
-      {
-        id: 'general',
-        name: 'general',
-        description: 'Main room for everyone',
-        createdBy: 'Admin'
-      }
-    ];
-    seed.messages = [
-      {
-        id: crypto.randomUUID(),
-        channelId: 'general',
-        username: 'Admin',
-        content: 'Welcome to Wyvern Chat. The Admin can manage users, messages, and badges.',
-        timestamp: new Date().toISOString(),
-        deleted: false
-      }
-    ];
-    saveDb(seed);
-    return seed;
+    };
+    fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2));
+    return initial;
   }
 
   try {
-    const raw = fs.readFileSync(dbPath, 'utf8');
-    const db = JSON.parse(raw);
-    ensureDefaults(db);
-    saveDb(db);
-    return db;
+    const raw = fs.readFileSync(DB_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+
+    return {
+      users: Array.isArray(parsed.users) ? parsed.users : [],
+      channels: Array.isArray(parsed.channels) ? parsed.channels : [],
+      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      meta: parsed.meta || {}
+    };
   } catch (error) {
-    console.error('Database load failed, reinitializing.', error);
-    const seed = getDefaultDb();
-    saveDb(seed);
-    return seed;
+    const fallback = {
+      users: [],
+      channels: [],
+      messages: [],
+      meta: {
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    };
+    fs.writeFileSync(DB_PATH, JSON.stringify(fallback, null, 2));
+    return fallback;
   }
 }
 
-function saveDb(db) {
-  fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
+function saveDatabase() {
+  db.meta = db.meta || {};
+  db.meta.updatedAt = new Date().toISOString();
+  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
 }
 
-function ensureDefaults(db) {
-  if (!db.users) db.users = [];
-  if (!db.channels) db.channels = [];
-  if (!db.messages) db.messages = [];
-  if (!db.settings) db.settings = { defaultChannel: 'general' };
-  if (!db.sessions) db.sessions = [];
+function sanitizeUser(user) {
+  const copy = { ...user };
+  delete copy.passwordHash;
+  return copy;
+}
 
-  if (!db.users.some((u) => u.username === 'Admin')) {
-    db.users.unshift({
-      username: 'Admin',
-      password: 'whatthesigma',
-      role: 'admin',
-      verified: true,
-      badges: ['blue', 'gold'],
+function getUserById(id) {
+  return db.users.find((user) => user.id === id);
+}
+
+function getUserByUsername(username) {
+  return db.users.find((user) => user.username.toLowerCase() === username.toLowerCase());
+}
+
+function getChannelByName(name) {
+  return db.channels.find((channel) => channel.name === name);
+}
+
+function ensureDefaultChannels() {
+  if (!db.channels.length) {
+    db.channels.push({
+      id: randomUUID(),
+      name: DEFAULT_CHANNELS[0],
+      displayName: `#${DEFAULT_CHANNELS[0]}`,
+      createdAt: new Date().toISOString()
+    });
+  }
+}
+
+function ensureAdminAccount() {
+  const admin = db.users.find((user) => user.username.toLowerCase() === ADMIN_USERNAME.toLowerCase());
+  if (!admin) {
+    db.users.push({
+      id: randomUUID(),
+      username: ADMIN_USERNAME,
+      passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
+      role: 'Admin',
+      verified: {
+        blue: false,
+        gold: false
+      },
       banned: false,
       createdAt: new Date().toISOString()
     });
   }
+}
 
-  if (!db.channels.some((c) => c.id === 'general')) {
-    db.channels.unshift({
-      id: 'general',
-      name: 'general',
-      description: 'Main room for everyone',
-      createdBy: 'Admin'
-    });
+function initializeDatabase() {
+  ensureDefaultChannels();
+  ensureAdminAccount();
+
+  db.users = db.users.map((user) => ({
+    ...user,
+    role: user.role || 'User',
+    verified: user.verified || { blue: false, gold: false },
+    banned: Boolean(user.banned)
+  }));
+
+  db.messages = (db.messages || []).map((message) => ({
+    ...message,
+    deleted: Boolean(message.deleted)
+  }));
+
+  saveDatabase();
+}
+
+function isAdmin(user) {
+  return user && user.role === 'Admin';
+}
+
+function getPresenceUsers() {
+  return db.users.map((user) => ({
+    ...sanitizeUser(user),
+    online: onlineUsers.has(user.id)
+  }));
+}
+
+function removeOnlineUser(userId) {
+  if (onlineUsers.has(userId)) {
+    onlineUsers.delete(userId);
+  }
+}
+
+app.get('/', (req, res) => {
+  if (req.session.userId) {
+    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+  res.redirect('/login.html');
+});
+
+app.get('/index.html', (req, res) => {
+  if (req.session.userId) {
+    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+  res.redirect('/login.html');
+});
+
+app.get('/login.html', (req, res) => {
+  if (req.session.userId) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/register.html', (req, res) => {
+  if (req.session.userId) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'register.html'));
+});
+
+app.get('/api/me', (req, res) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
-  if (!db.settings.defaultChannel) {
-    db.settings.defaultChannel = 'general';
-  }
-
-  if (!db.messages.some((m) => m.username === 'Admin' && m.content.includes('Welcome to Wyvern Chat'))) {
-    db.messages.unshift({
-      id: crypto.randomUUID(),
-      channelId: 'general',
-      username: 'Admin',
-      content: 'Welcome to Wyvern Chat. The Admin can manage users, messages, and badges.',
-      timestamp: new Date().toISOString(),
-      deleted: false
-    });
-  }
-}
-
-function findUser(db, username) {
-  return db.users.find((u) => u.username.toLowerCase() === username.toLowerCase());
-}
-
-function sanitizeUser(user) {
-  if (!user) return null;
-  const { password, ...rest } = user;
-  return rest;
-}
-
-function createSession(db, username) {
-  const token = crypto.randomBytes(24).toString('hex');
-  db.sessions = db.sessions.filter((session) => session.username !== username);
-  db.sessions.push({ token, username, createdAt: new Date().toISOString() });
-  return token;
-}
-
-function getAuthenticatedUser(req, db) {
-  const token = req.headers['x-auth-token'] || req.query.token;
-  if (!token) return null;
-  const session = db.sessions.find((entry) => entry.token === token);
-  if (!session) return null;
-  return findUser(db, session.username);
-}
-
-function requireAuth(req, res, db) {
-  const user = getAuthenticatedUser(req, db);
+  const user = getUserById(req.session.userId);
   if (!user) {
-    res.status(401).json({ error: 'Login required' });
-    return null;
+    req.session.destroy(() => {});
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
-  return user;
-}
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+  res.json(sanitizeUser(user));
+});
+
+app.get('/api/channels', (req, res) => {
+  res.json(db.channels);
+});
+
+app.get('/api/users', (req, res) => {
+  res.json(getPresenceUsers());
+});
+
+app.get('/api/messages/:channelName', (req, res) => {
+  const channel = getChannelByName(req.params.channelName);
+  if (!channel) {
+    return res.status(404).json({ success: false, error: 'Channel not found' });
+  }
+
+  const messages = db.messages
+    .filter((message) => message.channel === channel.name && !message.deleted)
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  res.json({
+    success: true,
+    channel: channel.name,
+    messages
+  });
+});
 
 app.post('/api/register', (req, res) => {
-  const db = loadDb();
-  const { username, password } = req.body;
+  const username = (req.body.username || '').trim();
+  const password = req.body.password || '';
 
   if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
+    return res.status(400).json({ success: false, error: 'Username and password are required.' });
   }
 
-  if (findUser(db, username)) {
-    return res.status(409).json({ error: 'That username already exists.' });
+  if (username.length < 3 || username.length > 20) {
+    return res.status(400).json({ success: false, error: 'Username must be between 3 and 20 characters.' });
+  }
+
+  const existing = getUserByUsername(username);
+  if (existing) {
+    return res.status(409).json({ success: false, error: 'Username already exists.' });
   }
 
   const user = {
-    username: username.trim(),
-    password,
-    role: 'user',
-    verified: false,
-    badges: [],
+    id: randomUUID(),
+    username,
+    passwordHash: bcrypt.hashSync(password, 10),
+    role: 'User',
+    verified: {
+      blue: false,
+      gold: false
+    },
     banned: false,
     createdAt: new Date().toISOString()
   };
 
   db.users.push(user);
-  const token = createSession(db, user.username);
-  saveDb(db);
-  res.json({ token, user: sanitizeUser(user) });
+  saveDatabase();
+
+  req.session.userId = user.id;
+  res.json(sanitizeUser(user));
 });
 
 app.post('/api/login', (req, res) => {
-  const db = loadDb();
-  const { username, password } = req.body;
+  const username = (req.body.username || '').trim();
+  const password = req.body.password || '';
 
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-
-  const user = findUser(db, username);
+  const user = getUserByUsername(username);
   if (!user) {
-    return res.status(404).json({ error: 'User not found.' });
-  }
-
-  if (user.password !== password) {
-    return res.status(401).json({ error: 'Incorrect password.' });
+    return res.status(401).json({ success: false, error: 'Invalid credentials.' });
   }
 
   if (user.banned) {
-    return res.status(403).json({ error: 'You are banned from this chatroom.' });
+    return res.status(403).json({ success: false, error: 'This account is banned.' });
   }
 
-  const token = createSession(db, user.username);
-  saveDb(db);
-  res.json({ token, user: sanitizeUser(user) });
+  if (!bcrypt.compareSync(password, user.passwordHash)) {
+    return res.status(401).json({ success: false, error: 'Invalid credentials.' });
+  }
+
+  req.session.userId = user.id;
+  res.json(sanitizeUser(user));
 });
 
 app.post('/api/logout', (req, res) => {
-  const db = loadDb();
-  const token = req.headers['x-auth-token'];
-  if (token) {
-    db.sessions = db.sessions.filter((session) => session.token !== token);
-    saveDb(db);
-  }
-  res.json({ success: true });
-});
-
-app.get('/api/me', (req, res) => {
-  const db = loadDb();
-  const user = getAuthenticatedUser(req, db);
-  if (!user) {
-    return res.status(401).json({ error: 'Not signed in.' });
-  }
-  res.json({ user: sanitizeUser(user) });
-});
-
-app.get('/api/channels', (req, res) => {
-  const db = loadDb();
-  res.json({ channels: db.channels });
-});
-
-app.post('/api/channels', (req, res) => {
-  const db = loadDb();
-  const user = requireAuth(req, res, db);
-  if (!user) return;
-
-  const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: 'A channel name is required.' });
-
-  const id = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  if (!id) return res.status(400).json({ error: 'Channel name must contain letters or numbers.' });
-  if (db.channels.some((channel) => channel.id === id)) {
-    return res.status(409).json({ error: 'That channel already exists.' });
-  }
-
-  db.channels.push({
-    id,
-    name: name.trim(),
-    description: description || 'New channel',
-    createdBy: user.username
+  const userId = req.session.userId;
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ success: false, error: 'Could not log out.' });
+    }
+    if (userId) {
+      removeOnlineUser(userId);
+      io.emit('presence-update', { users: getPresenceUsers() });
+    }
+    res.json({ success: true });
   });
-  saveDb(db);
-  res.json({ channel: db.channels[db.channels.length - 1] });
-});
-
-app.get('/api/messages', (req, res) => {
-  const db = loadDb();
-  const channelId = req.query.channelId || db.settings.defaultChannel || 'general';
-  const messages = db.messages
-    .filter((message) => message.channelId === channelId && !message.deleted)
-    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  res.json({ messages });
 });
 
 app.post('/api/messages', (req, res) => {
-  const db = loadDb();
-  const user = requireAuth(req, res, db);
-  if (!user) return;
-  if (user.banned) return res.status(403).json({ error: 'You are banned from this chatroom.' });
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
 
-  const { channelId, content } = req.body;
-  if (!channelId || !content || !content.trim()) {
-    return res.status(400).json({ error: 'A message and channel are required.' });
+  const user = getUserById(req.session.userId);
+  if (!user || user.banned) {
+    return res.status(403).json({ success: false, error: 'You cannot send messages while banned.' });
+  }
+
+  const channel = getChannelByName(req.body.channel);
+  const content = (req.body.content || '').trim();
+
+  if (!channel) {
+    return res.status(404).json({ success: false, error: 'Channel not found.' });
+  }
+
+  if (!content) {
+    return res.status(400).json({ success: false, error: 'Message cannot be empty.' });
   }
 
   const message = {
-    id: crypto.randomUUID(),
-    channelId,
+    id: randomUUID(),
+    channel: channel.name,
+    userId: user.id,
     username: user.username,
-    content: content.trim(),
-    timestamp: new Date().toISOString(),
+    role: user.role,
+    verified: user.verified,
+    content,
+    createdAt: new Date().toISOString(),
     deleted: false
   };
 
   db.messages.push(message);
-  saveDb(db);
-  res.json({ message });
+  saveDatabase();
+
+  io.to(channel.name).emit('message', message);
+  res.json(message);
 });
 
-app.post('/api/messages/:id/delete', (req, res) => {
-  const db = loadDb();
-  const user = requireAuth(req, res, db);
-  if (!user) return;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Only admins can delete messages.' });
-
-  const message = db.messages.find((entry) => entry.id === req.params.id);
-  if (!message) return res.status(404).json({ error: 'Message not found.' });
-
-  message.deleted = true;
-  saveDb(db);
-  res.json({ success: true });
-});
-
-app.get('/api/users', (req, res) => {
-  const db = loadDb();
-  const user = requireAuth(req, res, db);
-  if (!user) return;
-
-  res.json({ users: db.users.map((entry) => sanitizeUser(entry)) });
-});
-
-app.post('/api/users/:username/ban', (req, res) => {
-  const db = loadDb();
-  const user = requireAuth(req, res, db);
-  if (!user) return;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
-
-  const target = findUser(db, req.params.username);
-  if (!target) return res.status(404).json({ error: 'User not found.' });
-
-  const { value } = req.body;
-  target.banned = value === true;
-  saveDb(db);
-  res.json({ user: sanitizeUser(target) });
-});
-
-app.post('/api/users/:username/badge', (req, res) => {
-  const db = loadDb();
-  const user = requireAuth(req, res, db);
-  if (!user) return;
-  if (user.role !== 'admin') return res.status(403).json({ error: 'Admin only.' });
-
-  const target = findUser(db, req.params.username);
-  if (!target) return res.status(404).json({ error: 'User not found.' });
-
-  const { badge, enabled } = req.body;
-  if (!['blue', 'gold'].includes(badge)) {
-    return res.status(400).json({ error: 'Badge must be blue or gold.' });
+io.on('connection', (socket) => {
+  const session = socket.request.session;
+  if (!session || !session.userId) {
+    socket.disconnect();
+    return;
   }
 
-  const badges = new Set(target.badges || []);
-  if (enabled) {
-    badges.add(badge);
-  } else {
-    badges.delete(badge);
+  const user = getUserById(session.userId);
+  if (!user || user.banned) {
+    socket.disconnect();
+    return;
   }
-  target.badges = [...badges];
-  saveDb(db);
-  res.json({ user: sanitizeUser(target) });
+
+  socket.data.userId = user.id;
+  socket.data.username = user.username;
+
+  onlineUsers.set(user.id, {
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+    verified: user.verified,
+    socketId: socket.id
+  });
+
+  db.channels.forEach((channel) => {
+    socket.join(channel.name);
+  });
+
+  io.emit('presence-update', { users: getPresenceUsers() });
+  io.emit('system-message', {
+    type: 'join',
+    message: `${user.username} joined the server.`
+  });
+
+  socket.on('disconnect', () => {
+    removeOnlineUser(user.id);
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('system-message', {
+      type: 'leave',
+      message: `${user.username} left the server.`
+    });
+  });
+
+  socket.on('typing', (payload) => {
+    if (!payload || !payload.channel) {
+      return;
+    }
+
+    const channel = getChannelByName(payload.channel);
+    if (!channel) {
+      return;
+    }
+
+    socket.to(channel.name).emit('typing', {
+      userId: user.id,
+      username: user.username,
+      channel: channel.name,
+      typing: Boolean(payload.typing)
+    });
+  });
+
+  socket.on('message', (payload) => {
+    if (!payload || !payload.channel || !payload.content) {
+      return;
+    }
+
+    const channel = getChannelByName(payload.channel);
+    if (!channel) {
+      return;
+    }
+
+    const content = (payload.content || '').trim();
+    if (!content) {
+      return;
+    }
+
+    const message = {
+      id: randomUUID(),
+      channel: channel.name,
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      verified: user.verified,
+      content,
+      createdAt: new Date().toISOString(),
+      deleted: false
+    };
+
+    db.messages.push(message);
+    saveDatabase();
+
+    io.to(channel.name).emit('message', message);
+  });
+
+  socket.on('admin:ban-user', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const target = getUserById(payload.userId);
+    if (!target || isAdmin(target)) {
+      return;
+    }
+
+    target.banned = true;
+    saveDatabase();
+
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('admin-action', {
+      action: 'ban-user',
+      userId: target.id,
+      username: target.username
+    });
+    io.emit('system-message', {
+      type: 'admin',
+      message: `${user.username} banned ${target.username}.`
+    });
+  });
+
+  socket.on('admin:unban-user', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const target = getUserById(payload.userId);
+    if (!target) {
+      return;
+    }
+
+    target.banned = false;
+    saveDatabase();
+
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('admin-action', {
+      action: 'unban-user',
+      userId: target.id,
+      username: target.username
+    });
+    io.emit('system-message', {
+      type: 'admin',
+      message: `${user.username} unbanned ${target.username}.`
+    });
+  });
+
+  socket.on('admin:delete-message', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const message = db.messages.find((entry) => entry.id === payload.messageId);
+    if (!message) {
+      return;
+    }
+
+    message.deleted = true;
+    saveDatabase();
+
+    io.to(message.channel).emit('message-deleted', {
+      messageId: message.id,
+      channel: message.channel
+    });
+    io.emit('admin-action', {
+      action: 'delete-message',
+      messageId: message.id
+    });
+  });
+
+  socket.on('admin:grant-blue-verification', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const target = getUserById(payload.userId);
+    if (!target) {
+      return;
+    }
+
+    target.verified = target.verified || {};
+    target.verified.blue = true;
+    saveDatabase();
+
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('admin-action', {
+      action: 'grant-blue-verification',
+      userId: target.id,
+      username: target.username
+    });
+  });
+
+  socket.on('admin:remove-blue-verification', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const target = getUserById(payload.userId);
+    if (!target) {
+      return;
+    }
+
+    target.verified = target.verified || {};
+    target.verified.blue = false;
+    saveDatabase();
+
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('admin-action', {
+      action: 'remove-blue-verification',
+      userId: target.id,
+      username: target.username
+    });
+  });
+
+  socket.on('admin:grant-gold-verification', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const target = getUserById(payload.userId);
+    if (!target) {
+      return;
+    }
+
+    target.verified = target.verified || {};
+    target.verified.gold = true;
+    saveDatabase();
+
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('admin-action', {
+      action: 'grant-gold-verification',
+      userId: target.id,
+      username: target.username
+    });
+  });
+
+  socket.on('admin:remove-gold-verification', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const target = getUserById(payload.userId);
+    if (!target) {
+      return;
+    }
+
+    target.verified = target.verified || {};
+    target.verified.gold = false;
+    saveDatabase();
+
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('admin-action', {
+      action: 'remove-gold-verification',
+      userId: target.id,
+      username: target.username
+    });
+  });
+
+  socket.on('admin:set-user-admin', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    const target = getUserById(payload.userId);
+    if (!target || target.id === user.id) {
+      return;
+    }
+
+    target.role = payload.isAdmin ? 'Admin' : 'User';
+    saveDatabase();
+
+    io.emit('presence-update', { users: getPresenceUsers() });
+    io.emit('admin-action', {
+      action: payload.isAdmin ? 'set-user-admin' : 'remove-user-admin',
+      userId: target.id,
+      username: target.username
+    });
+    io.emit('system-message', {
+      type: 'admin',
+      message: `${user.username} ${payload.isAdmin ? 'promoted' : 'demoted'} ${target.username}.`
+    });
+  });
 });
 
-app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`SigmaChat running on http://localhost:${PORT}`);
 });
-
-app.listen(3000, () => console.log('Wyvern chatroom running on http://localhost:3000'));
