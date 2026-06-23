@@ -117,15 +117,39 @@ function getChannelByName(name) {
   return db.channels.find((channel) => channel.name === name);
 }
 
+function sanitizeChannelName(rawName) {
+  return (rawName || 'general')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'general';
+}
+
+function buildChannel(name) {
+  return {
+    id: randomUUID(),
+    name: sanitizeChannelName(name),
+    displayName: `#${sanitizeChannelName(name)}`,
+    createdAt: new Date().toISOString()
+  };
+}
+
 function ensureDefaultChannels() {
   if (!db.channels.length) {
-    db.channels.push({
-      id: randomUUID(),
-      name: DEFAULT_CHANNELS[0],
-      displayName: `#${DEFAULT_CHANNELS[0]}`,
-      createdAt: new Date().toISOString()
-    });
+    db.channels = [buildChannel(DEFAULT_CHANNELS[0])];
+    return;
   }
+
+  const first = db.channels[0] || {};
+  db.channels = [
+    {
+      id: first.id || randomUUID(),
+      name: sanitizeChannelName(first.name || DEFAULT_CHANNELS[0]),
+      displayName: first.displayName || `#${sanitizeChannelName(first.name || DEFAULT_CHANNELS[0])}`,
+      createdAt: first.createdAt || new Date().toISOString()
+    }
+  ];
 }
 
 function ensureAdminAccount() {
@@ -453,6 +477,36 @@ io.on('connection', (socket) => {
     saveDatabase();
 
     io.to(channel.name).emit('message', message);
+  });
+
+  socket.on('admin:create-channel', (payload) => {
+    if (!isAdmin(user)) {
+      return;
+    }
+
+    if (db.channels.length >= 1) {
+      socket.emit('system-message', { message: 'Only one channel is allowed.' });
+      return;
+    }
+
+    const name = sanitizeChannelName(payload && payload.name);
+    if (!name || name.length > 20) {
+      socket.emit('system-message', { message: 'Channel name is invalid.' });
+      return;
+    }
+
+    if (db.channels.some((channel) => channel.name === name)) {
+      socket.emit('system-message', { message: `#${name} already exists.` });
+      return;
+    }
+
+    const channel = buildChannel(name);
+    db.channels.push(channel);
+    saveDatabase();
+
+    socket.join(channel.name);
+    io.emit('channels-update', { channels: db.channels });
+    io.emit('system-message', { type: 'admin', message: `${user.username} created #${name}.` });
   });
 
   socket.on('admin:ban-user', (payload) => {

@@ -48,6 +48,17 @@ function formatTimestamp(timestamp) {
   return new Date(timestamp).toLocaleString();
 }
 
+function renderBadges(user) {
+  if (!user || (!user.verified?.blue && !user.verified?.gold)) {
+    return '';
+  }
+
+  const badges = [];
+  if (user.verified?.blue) badges.push('<span class="badge blue">Blue</span>');
+  if (user.verified?.gold) badges.push('<span class="badge gold">Gold</span>');
+  return `<div class="user-badges">${badges.join('')}</div>`;
+}
+
 function initAuth(mode) {
   const form = mode === 'login'
     ? document.getElementById('loginForm')
@@ -174,6 +185,7 @@ function initChat() {
           <div>
             <div class="user-name">${escapeHtml(user.username)}</div>
             <div class="user-meta">${escapeHtml(user.role)}</div>
+            ${renderBadges(user)}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -271,8 +283,7 @@ function initChat() {
           <strong>${escapeHtml(selectedUser.username)}</strong>
           <p>Role: ${escapeHtml(selectedUser.role)}</p>
           <p>Online: ${selectedUser.online ? 'Yes' : 'No'}</p>
-          <p>Blue badge: ${selectedUser.verified && selectedUser.verified.blue ? 'Yes' : 'No'}</p>
-          <p>Gold badge: ${selectedUser.verified && selectedUser.verified.gold ? 'Yes' : 'No'}</p>
+          <p>Badges: ${selectedUser.verified?.blue || selectedUser.verified?.gold ? renderBadges(selectedUser).replace(/<[^>]+>/g, '').trim() || 'None' : 'None'}</p>
           <p>Banned: ${selectedUser.banned ? 'Yes' : 'No'}</p>
         </div>
       `;
@@ -373,6 +384,14 @@ function initChat() {
       state.users = users;
       renderUsers();
       renderAdminPanel();
+    });
+
+    state.socket.on('channels-update', ({ channels }) => {
+      state.channels = channels;
+      renderChannels();
+      if (!channels.some((channel) => channel.name === state.currentChannel)) {
+        switchChannel(channels[0].name);
+      }
     });
 
     state.socket.on('system-message', ({ message }) => {

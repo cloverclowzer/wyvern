@@ -271,6 +271,13 @@ a {
   color: var(--gold);
 }
 
+.user-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .status-dot {
   width: 10px;
   height: 10px;
