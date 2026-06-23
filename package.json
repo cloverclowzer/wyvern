@@ -1,0 +1,12 @@
+{
+  "name": "wyvern-chatroom",
+  "version": "1.0.0",
+  "description": "A stylish chatroom with auth, moderation, roles, badges, and Discord-style channels",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

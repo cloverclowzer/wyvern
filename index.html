@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wyvern Chat</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-card">
+          <h1>Wyvern</h1>
+          <p>Discord-style channels, rich chat, and mod powers.</p>
+        </div>
+
+        <section id="auth-panel" class="panel"></section>
+
+        <section id="channel-panel" class="panel hidden">
+          <div class="panel-heading">
+            <h2>Channels</h2>
+            <button id="refresh-channels">Refresh</button>
+          </div>
+          <div id="channel-list" class="channel-list"></div>
+          <form id="channel-form" class="stacked-form">
+            <input id="channel-name" placeholder="New channel name" />
+            <input id="channel-description" placeholder="Channel description" />
+            <button type="submit">Create channel</button>
+          </form>
+        </section>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="topbar">
+          <div>
+            <h2 id="channel-title"># general</h2>
+            <p id="channel-subtitle">Main room for everyone</p>
+          </div>
+          <div id="user-bubble" class="user-bubble"></div>
+        </header>
+
+        <section id="message-list" class="message-list"></section>
+
+        <form id="message-form" class="composer hidden">
+          <textarea id="message-input" placeholder="Write a message..."></textarea>
+          <button type="submit">Send</button>
+        </form>
+
+        <section id="admin-panel" class="panel hidden"></section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
