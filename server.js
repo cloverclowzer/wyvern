@@ -291,7 +291,8 @@ app.post('/api/messages', (req, res) => {
 
 app.post('/api/messages/:id/delete', (req, res) => {
   const db = loadDb();
-  const user = requireAuth(req, res, db);\n  if (!user) return;
+  const user = requireAuth(req, res, db);
+  if (!user) return;
   if (user.role !== 'admin') return res.status(403).json({ error: 'Only admins can delete messages.' });
 
   const message = db.messages.find((entry) => entry.id === req.params.id);
